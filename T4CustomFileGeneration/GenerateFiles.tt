@@ -1,0 +1,29 @@
+﻿<#@ template debug="true" hostspecific="true" language="C#" #>
+<#@ assembly name="EnvDTE"#>
+<#@ assembly name="System.Core" #>
+<#@ import namespace="System" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Collections.Generic"#>
+<#@ import namespace="System.Linq"#>
+<#@ import namespace="System.Text"#>
+<#@ import namespace="Microsoft.VisualStudio.TextTemplating"#>
+<#@ output extension="/" #>
+<#@ template language="C#v3.5" hostspecific="True"#>
+<#@ include file="Manager.ttinclude"#>
+
+<#
+	var manager = new Manager(Host, GenerationEnvironment, true, "T4CustomFileGeneration")
+	{
+		OutputPath = Path.GetDirectoryName(Host.TemplateFile),
+	};
+#>
+
+<# manager.StartBlock("FooStoredProc.sql", "Stored Procedures"); #>
+CREATE PROC FOO ...
+<# manager.EndBlock(); #>
+
+<# manager.StartBlock("BarTable.sql", "Tables"); #>
+SELECT * FROM Bar ...
+<# manager.EndBlock(); #>
+
+<# manager.Process(); #>

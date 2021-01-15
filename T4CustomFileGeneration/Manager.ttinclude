@@ -1,0 +1,150 @@
+<#@ assembly name="System.Core"
+#><#@ assembly name="EnvDTE"
+#><#@ import namespace="System.Collections.Generic"
+#><#@ import namespace="System.IO"
+#><#@ import namespace="System.Text"
+#><#@ import namespace="Microsoft.VisualStudio.TextTemplating"
+#><#+
+
+// T4 Template Block manager for handling multiple file outputs more easily.
+// Copyright (c) Microsoft Corporation.  All rights reserved.
+// This source code is made available under the terms of the Microsoft Public License (MS-PL)
+
+// Manager class records the various blocks so it can split them up
+class Manager
+{
+	private struct Block {
+		public String Name;
+		public String FolderName;
+		public int Start, Length;
+	}
+
+	private List<Block> blocks = new List<Block>();
+	private Block currentBlock;
+	private Block footerBlock = new Block();
+	private Block headerBlock = new Block();
+	private VSManagementStrategy strategy;
+	private StringBuilder template;
+	public String OutputPath { get; set; }
+
+	public Manager(ITextTemplatingEngineHost host, StringBuilder template, bool commonHeader, string executingProjectName) {
+		this.template = template;
+		OutputPath = String.Empty;
+		strategy = new VSManagementStrategy(host, executingProjectName);
+	}
+
+	public void StartBlock(String name) {
+		currentBlock = new Block { Name = name, Start = template.Length };
+	}
+
+	public void StartBlock(String name, String folderName) {
+		currentBlock = new Block { Name = name, FolderName = folderName, Start = template.Length };
+	}
+
+	public void StartFooter() {
+		footerBlock.Start = template.Length;
+	}
+
+	public void EndFooter() {
+		footerBlock.Length = template.Length - footerBlock.Start;
+	}
+
+	public void StartHeader() {
+		headerBlock.Start = template.Length;
+	}
+
+	public void EndHeader() {
+		headerBlock.Length = template.Length - headerBlock.Start;
+	}
+
+	public void EndBlock() {
+		currentBlock.Length = template.Length - currentBlock.Start;
+		blocks.Add(currentBlock);
+	}
+
+	public void Process() {
+		String header = template.ToString(headerBlock.Start, headerBlock.Length);
+		String footer = template.ToString(footerBlock.Start, footerBlock.Length);
+		blocks.Reverse();
+
+		foreach(Block block in blocks) {
+			String fileName = Path.Combine(OutputPath, block.Name);
+			String content = header + template.ToString(block.Start, block.Length) + footer;
+
+			if(string.IsNullOrWhiteSpace(block.FolderName)) {
+				strategy.CreateFile(OutputPath, block.Name, content);
+			}
+			else {
+				strategy.CreateFile(OutputPath, block.Name, block.FolderName, content);
+			}
+				
+			template.Remove(block.Start, block.Length);
+		}
+	}
+}
+
+class VSManagementStrategy
+{
+	private EnvDTE.Project project;
+	private EnvDTE.ProjectItem templateProjectItem;
+	private EnvDTE.DTE _dte;
+	private ITextTemplatingEngineHost _host;
+
+	internal VSManagementStrategy(ITextTemplatingEngineHost host, string executingProjectName) {
+		IServiceProvider hostServiceProvider = (IServiceProvider)host;
+		if (hostServiceProvider == null)
+			throw new ArgumentNullException("Could not obtain hostServiceProvider");
+
+		EnvDTE.DTE dte = (EnvDTE.DTE)hostServiceProvider.GetService(typeof(EnvDTE.DTE));
+		if (dte == null)
+			throw new ArgumentNullException("Could not obtain DTE from host");
+
+		templateProjectItem = dte.Solution.FindProjectItem(host.TemplateFile);
+		_dte = dte;
+		_host = host;
+
+		EnvDTE.Projects projects = _dte.Solution.Projects;
+        foreach(EnvDTE.Project proj in projects)
+	    {
+		    if(proj.Name == executingProjectName)
+            {
+                project = proj;
+				break;
+		    }
+	    }
+	}
+
+	internal void CreateFile(String outputPath, String fileName, String content) {
+		var path = Path.Combine(outputPath, fileName);
+		File.WriteAllText(path, content);
+		project.ProjectItems.AddFromFile(path);
+	}
+
+	internal void CreateFile(String outputPath, String fileName, String folderName, String content) {
+	    EnvDTE.ProjectItems projItems = project.ProjectItems;
+	    EnvDTE.ProjectItem folder = null;
+	    bool folderExists = false;
+        foreach(EnvDTE.ProjectItem projItem in projItems)
+        {
+            if(projItem.Name == folderName)
+        {
+                folderExists = true;
+                folder = projItem;
+                break;
+            }
+        }
+
+	    if(!folderExists)
+        {
+            folder = projItems.AddFolder(folderName);
+	    }
+
+		string templateDirectory = Path.GetDirectoryName(_host.TemplateFile);
+		string directoryPath = Path.Combine(templateDirectory, folder.Name);
+		string filePath = Path.Combine(directoryPath, fileName);
+
+		String fullPath = Path.Combine(directoryPath, fileName);
+		File.WriteAllText(fullPath, content);
+		folder.ProjectItems.AddFromFile(filePath);
+	}
+}#>
